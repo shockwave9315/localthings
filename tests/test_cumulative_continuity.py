@@ -1,6 +1,6 @@
 """Regression tests for cumulative counter capability/state continuity."""
 
-from typing import cast
+from typing import Any, cast
 
 from homeassistant.components.sensor import RestoreSensor
 from homeassistant.core import HomeAssistant
@@ -17,34 +17,41 @@ from custom_components.localthings.sensor import LocalThingsRetainedSensor
 
 
 class _FakeConfigEntry:
-    options: dict = {}
+    def __init__(self) -> None:
+        self.options: dict[str, Any] = {}
 
 
 class _FakeCoordinator:
     """Minimal coordinator surface needed by entity/sensor continuity tests."""
 
-    def __init__(self, resources=None, *, hass=None):
+    def __init__(
+        self,
+        resources: dict[str, dict[str, Any]] | None = None,
+        *,
+        hass: HomeAssistant | None = None,
+    ) -> None:
         self.hass = hass
         self.device_key = "TEST-DEVICE"
         self.config_entry = _FakeConfigEntry()
         self.last_resources = resources or {}
-        self.data: dict = {}
+        self.data: dict[str, Any] = {}
 
     @property
-    def discovery_resources(self):
+    def discovery_resources(self) -> dict[str, dict[str, Any]]:
         return self.last_resources
 
-    def discovery_canonical(self, subdevice):
+    def discovery_canonical(self, subdevice) -> dict[str, dict[str, Any]]:
         return self.last_resources
 
-    def canonical_resources(self, subdevice):
+    def canonical_resources(self, subdevice) -> dict[str, dict[str, Any]]:
         return self.last_resources
 
-    def resource(self, href):
+    def resource(self, href: str) -> dict[str, Any]:
         return self.last_resources.get(href, {})
 
 
 def _energy_bound() -> BoundEntity:
+    href = "/energy/consumption/vs/0"
     desc = SensorDesc(
         key="energy_kwh",
         field="x.com.samsung.da.cumulativePower",
@@ -53,8 +60,8 @@ def _energy_bound() -> BoundEntity:
         unit="kWh",
         exists_fn=lambda rep, resources: "x.com.samsung.da.cumulativePower" in rep,
     )
-    capability = Capability(href="/energy/consumption/vs/0", entities=(desc,))
-    return BoundEntity(href=capability.href, capability=capability, desc=desc)
+    capability = Capability(href=href, entities=(desc,))
+    return BoundEntity(href=href, capability=capability, desc=desc)
 
 
 async def test_registered_cumulative_sensor_survives_transient_field_loss(
