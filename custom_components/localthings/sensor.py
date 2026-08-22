@@ -187,14 +187,9 @@ class LocalThingsSensor(LocalThingsEntity, SensorEntity):
 
 
 class LocalThingsRetainedSensor(LocalThingsSensor, RestoreSensor):
-    """Cumulative sensor that survives transient vendor field omissions.
+    """Hold a cumulative sensor's last valid total while its vendor field is absent.
 
-    Samsung appliances can answer normally while omitting a cumulative field
-    for a while (for example cumulativePower around an off/on transition).
-    The raw resource cache must keep reflecting exactly what the appliance
-    said, so retention lives only at the entity layer. The last valid total
-    is also restored across a config-entry reload; when a new device value
-    arrives it replaces the retained value immediately.
+    Retention stays at the entity layer so raw resources remain exact; HA restore spans reloads.
     """
 
     def __init__(self, coordinator: LocalThingsCoordinator, bound) -> None:
