@@ -20,18 +20,9 @@ from .registry.entities import SensorDesc
 def _was_registered_cumulative_sensor(
     bound: BoundEntity, coordinator: LocalThingsCoordinator, rep: dict
 ) -> bool:
-    """Keep a previously-proven cumulative sensor across transient field loss.
+    """Keep a proven cumulative sensor when a populated resource temporarily omits its total.
 
-    Some Samsung firmware leaves a resource populated while temporarily
-    omitting one cumulative field (notably cumulativePower while laundry
-    appliances are off). Entity registry presence proves this config entry
-    exposed the sensor before; a non-empty current rep proves the resource
-    itself still exists. Together those are enough to keep the entity
-    registered instead of revoking a capability on one incomplete sample.
-
-    The non-empty-rep requirement deliberately preserves issue #127's
-    behavior: a genuinely empty /energy/consumption/vs/0 on hardware that
-    never supports energy must not resurrect an old phantom sensor.
+    This preserves laundry energy continuity without reviving issue #127's empty resources.
     """
     desc = bound.desc
     if not rep or not isinstance(desc, SensorDesc) or desc.state_class != "total_increasing":
