@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from homeassistant.const import EntityCategory
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -13,6 +14,33 @@ from .coordinator import LocalThingsCoordinator
 from .registry.adapter import _key
 from .registry.batch import is_stub_rep
 from .registry.discovery import BoundEntity, _snake_to_title
+from .registry.entities import SensorDesc
+
+
+def _was_registered_cumulative_sensor(
+    bound: BoundEntity, coordinator: LocalThingsCoordinator, rep: dict
+) -> bool:
+    """Keep a previously-proven cumulative sensor across transient field loss.
+
+    Some Samsung firmware leaves a resource populated while temporarily
+    omitting one cumulative field (notably cumulativePower while laundry
+    appliances are off). Entity registry presence proves this config entry
+    exposed the sensor before; a non-empty current rep proves the resource
+    itself still exists. Together those are enough to keep the entity
+    registered instead of revoking a capability on one incomplete sample.
+
+    The non-empty-rep requirement deliberately preserves issue #127's
+    behavior: a genuinely empty /energy/consumption/vs/0 on hardware that
+    never supports energy must not resurrect an old phantom sensor.
+    """
+    desc = bound.desc
+    if not rep or not isinstance(desc, SensorDesc) or desc.state_class != "total_increasing":
+        return False
+    unique_id = f"{DOMAIN}_{coordinator.device_key}_{_key(bound)}"
+    return (
+        er.async_get(coordinator.hass).async_get_entity_id("sensor", DOMAIN, unique_id)
+        is not None
+    )
 
 
 def _is_included(bound: BoundEntity, coordinator: LocalThingsCoordinator) -> bool:
@@ -31,6 +59,13 @@ def _is_included(bound: BoundEntity, coordinator: LocalThingsCoordinator) -> boo
     has verified a field is genuinely never populated opts into stricter
     gating with its own exists_fn (see common.ENERGY_METER, issue #127).
 
+    A previously registered total_increasing sensor gets one narrow
+    continuity exception: if its resource still returns a non-empty rep,
+    temporary loss of the cumulative field does not revoke the already
+    proven capability. This covers Samsung laundry boards that intermittently
+    omit cumulativePower while off without weakening the confirmed-empty
+    resource guard above.
+
     `bound.href` is already the actual href (issue #177); `exists_fn` gets
     `bound`'s own subdevice's canonical view instead of the raw snapshot,
     same rule as everywhere else a whole-resources-dict scan happens --
@@ -43,13 +78,17 @@ def _is_included(bound: BoundEntity, coordinator: LocalThingsCoordinator) -> boo
     rep = coordinator.discovery_resources.get(bound.href)
     if rep is None:
         return False
+
     if bound.desc.exists_fn is not None:
-        return bound.desc.exists_fn(rep, coordinator.discovery_canonical(bound.subdevice))
-    if bound.desc.field:
-        if not rep or is_stub_rep(rep):
-            return True
-        return bound.desc.field in rep
-    return True  # rep_fn or no-field entities (ButtonDesc) are always included
+        included = bound.desc.exists_fn(
+            rep, coordinator.discovery_canonical(bound.subdevice)
+        )
+    elif bound.desc.field:
+        included = not rep or is_stub_rep(rep) or bound.desc.field in rep
+    else:
+        included = True  # rep_fn or no-field entities (ButtonDesc)
+
+    return included or _was_registered_cumulative_sensor(bound, coordinator, rep)
 
 
 def _derive_name(state_key: str) -> str:
