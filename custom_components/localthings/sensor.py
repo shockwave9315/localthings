@@ -6,7 +6,12 @@ import time
 from datetime import timedelta
 from typing import cast
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    RestoreSensor,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -32,7 +37,11 @@ async def async_setup_entry(
 ) -> None:
     coordinator: LocalThingsCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
-        LocalThingsSensor(coordinator, b)
+        (
+            LocalThingsRetainedSensor(coordinator, b)
+            if b.desc.state_class == "total_increasing"
+            else LocalThingsSensor(coordinator, b)
+        )
         for b in coordinator.bound
         if isinstance(b.desc, SensorDesc) and _is_included(b, coordinator)
     ]
@@ -80,9 +89,13 @@ class LocalThingsSensor(LocalThingsEntity, SensorEntity):
             return self._attr_options
         return [*self._attr_options, value]
 
+    def _coordinator_value(self):
+        """Return this sensor's current value from flattened coordinator data."""
+        return (self.coordinator.data or {}).get(self._state_key)
+
     @property
     def native_value(self):
-        raw = (self.coordinator.data or {}).get(self._state_key)
+        raw = self._coordinator_value()
         desc = cast(SensorDesc, self._bound.desc)
         if desc.sticky_fn is not None:
             raw = self._apply_sticky(raw, desc)
@@ -171,6 +184,34 @@ class LocalThingsSensor(LocalThingsEntity, SensorEntity):
             return self._hysteresis_value
         self._hysteresis_value = raw
         return raw
+
+
+class LocalThingsRetainedSensor(LocalThingsSensor, RestoreSensor):
+    """Hold a cumulative sensor's last valid total while its vendor field is absent.
+
+    Retention stays at the entity layer so raw resources remain exact; HA restore spans reloads.
+    """
+
+    def __init__(self, coordinator: LocalThingsCoordinator, bound) -> None:
+        super().__init__(coordinator, bound)
+        self._retained_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last cumulative total when live data is temporarily absent."""
+        await super().async_added_to_hass()
+        raw = super()._coordinator_value()
+        if raw is not None:
+            self._retained_value = raw
+            return
+        last_data = await self.async_get_last_sensor_data()
+        if last_data is not None and last_data.native_value is not None:
+            self._retained_value = last_data.native_value
+
+    def _coordinator_value(self):
+        raw = super()._coordinator_value()
+        if raw is not None:
+            self._retained_value = raw
+        return self._retained_value
 
 
 class LocalThingsConnectionModeSensor(CoordinatorEntity[LocalThingsCoordinator], SensorEntity):
