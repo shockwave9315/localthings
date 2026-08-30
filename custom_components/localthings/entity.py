@@ -29,8 +29,7 @@ def _was_registered_cumulative_sensor(
         return False
     unique_id = f"{DOMAIN}_{coordinator.device_key}_{_key(bound)}"
     return (
-        er.async_get(coordinator.hass).async_get_entity_id("sensor", DOMAIN, unique_id)
-        is not None
+        er.async_get(coordinator.hass).async_get_entity_id("sensor", DOMAIN, unique_id) is not None
     )
 
 
@@ -71,9 +70,7 @@ def _is_included(bound: BoundEntity, coordinator: LocalThingsCoordinator) -> boo
         return False
 
     if bound.desc.exists_fn is not None:
-        included = bound.desc.exists_fn(
-            rep, coordinator.discovery_canonical(bound.subdevice)
-        )
+        included = bound.desc.exists_fn(rep, coordinator.discovery_canonical(bound.subdevice))
     elif bound.desc.field:
         included = not rep or is_stub_rep(rep) or bound.desc.field in rep
     else:
