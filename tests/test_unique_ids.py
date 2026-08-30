@@ -10,6 +10,7 @@ from collections import Counter
 from typing import cast
 
 import pytest
+from homeassistant.core import HomeAssistant
 
 from custom_components.localthings.coordinator import LocalThingsCoordinator
 from custom_components.localthings.entity import _is_included
@@ -25,7 +26,9 @@ class _FakeCoordinator:
     _is_included -- the same one-time entity-creation gate every platform's
     async_setup_entry runs (see entity.py's own module docstring)."""
 
-    def __init__(self, resources: dict[str, dict], subdevices):
+    def __init__(self, hass: HomeAssistant, resources: dict[str, dict], subdevices):
+        self.hass = hass
+        self.device_key = "TEST-DEVICE"
         self.last_resources = resources
         self._subdevices = list(subdevices)
 
@@ -45,7 +48,7 @@ class _FakeCoordinator:
 
 
 @pytest.mark.parametrize("name", _FIXTURE_NAMES)
-def test_key_is_unique_across_all_bound_entities(name):
+def test_key_is_unique_across_all_bound_entities(name, hass: HomeAssistant):
     """`_key(b)` only has to be unique among entities `_is_included` would
     actually register -- discover() alone can (deliberately) produce two
     BoundEntity rows sharing a key on the same href when they're gated by
@@ -68,7 +71,7 @@ def test_key_is_unique_across_all_bound_entities(name):
         oic_res,
         seeds,
     )
-    coordinator = cast(LocalThingsCoordinator, _FakeCoordinator(full_resources, materialized))
+    coordinator = cast(LocalThingsCoordinator, _FakeCoordinator(hass, full_resources, materialized))
     included = [b for b in bound if _is_included(b, coordinator)]
     keys = [(PLATFORM_OF[type(b.desc)], _key(b)) for b in included]
     dupes = {k: n for k, n in Counter(keys).items() if n > 1}
